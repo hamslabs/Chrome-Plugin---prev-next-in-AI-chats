@@ -1,0 +1,42 @@
+{
+  "manifest_version": 3,
+  "name": "Prompt Navigator",
+  "version": "0.1.0",
+  "description": "Jump to the next/previous user prompt in AI chat UIs.",
+  "permissions": ["activeTab"],
+  "host_permissions": [
+    "https://chatgpt.com/*",
+    "https://chat.openai.com/*",
+    "https://claude.ai/*"
+  ],
+  "background": {
+    "service_worker": "src/service_worker.js"
+  },
+  "content_scripts": [
+    {
+      "matches": [
+        "https://chatgpt.com/*",
+        "https://chat.openai.com/*",
+        "https://claude.ai/*"
+      ],
+      "js": ["src/content.js"],
+      "run_at": "document_idle"
+    }
+  ],
+  "commands": {
+    "next-prompt": {
+      "suggested_key": {
+        "default": "Alt+Shift+J",
+        "mac": "Alt+J"
+      },
+      "description": "Jump to next user prompt"
+    },
+    "prev-prompt": {
+      "suggested_key": {
+        "default": "Alt+Shift+K",
+        "mac": "Alt+K"
+      },
+      "description": "Jump to previous user prompt"
+    }
+  }
+}
