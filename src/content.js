@@ -800,8 +800,6 @@ button.__pn_collapse_btn:hover { opacity: 1; }
     if (!msg) return;
     if (msg.type === 'PROMPT_NAVIGATE') {
       if (msg.dir === 'next' || msg.dir === 'prev') navigate(msg.dir);
-    } else if (msg.type === 'PROMPT_OUTLINE_TOGGLE') {
-      toggleOutline();
     }
   });
 
