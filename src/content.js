@@ -10,6 +10,8 @@
   let outlineOpen = false;
   let outlineObserver = null;
   let outlineRefreshTimer = null;
+  let collapseEnhanceTimer = null;
+  let collapseObserver = null;
 
   function showVersionBadge() {
     const shownKey = '__promptnav_version_badge_shown';
@@ -66,6 +68,129 @@
     if (!el) return '';
     const t = el.innerText || el.textContent || '';
     return String(t).trim();
+  }
+
+  function isHeadingEl(el) {
+    if (!(el instanceof Element)) return false;
+    return /^H[1-6]$/i.test(el.tagName);
+  }
+
+  function headingLevel(el) {
+    if (!isHeadingEl(el)) return 0;
+    const m = /H([1-6])/i.exec(el.tagName);
+    return m ? Number(m[1]) : 0;
+  }
+
+  function collapsibleNodesForHeading(h) {
+    const lvl = headingLevel(h);
+    if (!lvl) return [];
+    const out = [];
+    let el = h.nextElementSibling;
+    while (el) {
+      if (isHeadingEl(el) && headingLevel(el) <= lvl) break;
+      out.push(el);
+      el = el.nextElementSibling;
+    }
+    return out;
+  }
+
+  function setHeadingCollapsed(h, collapsed) {
+    const nodes = collapsibleNodesForHeading(h);
+    for (const n of nodes) n.hidden = collapsed;
+    h.dataset.pnCollapsed = collapsed ? '1' : '0';
+
+    const btn = h.querySelector(':scope > button.__pn_collapse_btn');
+    if (btn) {
+      btn.setAttribute('aria-expanded', collapsed ? 'false' : 'true');
+      btn.textContent = collapsed ? '▸' : '▾';
+    }
+  }
+
+  function enhanceCollapsibleHeadingsInAssistantMessage(msgEl) {
+    if (!(msgEl instanceof Element)) return;
+    if (msgEl.querySelector('#__promptnav_outline')) return;
+
+    const headings = Array.from(msgEl.querySelectorAll('h1,h2,h3,h4,h5,h6'));
+    for (const h of headings) {
+      if (!(h instanceof HTMLElement)) continue;
+      if (h.closest('#__promptnav_outline')) continue;
+      if (h.dataset.pnCollapsible === '1') continue;
+
+      // Only collapse headings that have at least one sibling after them.
+      // This avoids adding toggles to headings used purely as labels.
+      if (!h.nextElementSibling) continue;
+
+      const btn = document.createElement('button');
+      btn.className = '__pn_collapse_btn';
+      btn.type = 'button';
+      btn.textContent = '▾';
+      btn.setAttribute('aria-label', 'Collapse/expand section');
+      btn.setAttribute('aria-expanded', 'true');
+      btn.addEventListener('click', (e) => {
+        e.preventDefault();
+        e.stopPropagation();
+        const collapsed = h.dataset.pnCollapsed === '1';
+        setHeadingCollapsed(h, !collapsed);
+      });
+
+      // Insert at the beginning of the heading. Keep the heading text selectable.
+      h.insertBefore(btn, h.firstChild);
+      h.dataset.pnCollapsible = '1';
+      h.dataset.pnCollapsed = '0';
+    }
+  }
+
+  function assistantMessageRoots() {
+    const host = location.hostname;
+    if (host === 'chat.openai.com' || host === 'chatgpt.com') {
+      return qsa('[data-message-author-role="assistant"]');
+    }
+    if (host === 'claude.ai') {
+      // Claude markup is less stable; we try the likely containers.
+      return uniqInDomOrder([
+        ...qsa('[data-testid="assistant-message"]'),
+        ...qsa('[data-testid="assistant-message-content"]'),
+        ...qsa('[data-testid="message"][data-role="assistant"]')
+      ]);
+    }
+    return [];
+  }
+
+  function scheduleCollapseEnhance() {
+    if (collapseEnhanceTimer) clearTimeout(collapseEnhanceTimer);
+    collapseEnhanceTimer = setTimeout(() => {
+      collapseEnhanceTimer = null;
+      for (const msg of assistantMessageRoots()) enhanceCollapsibleHeadingsInAssistantMessage(msg);
+    }, 250);
+  }
+
+  function startCollapseObserver() {
+    if (collapseObserver) return;
+    collapseObserver = new MutationObserver(() => scheduleCollapseEnhance());
+    collapseObserver.observe(document.body, { childList: true, subtree: true });
+  }
+
+  function ensureCollapseStyles() {
+    const id = '__promptnav_collapse_style';
+    if (document.getElementById(id)) return;
+    const style = document.createElement('style');
+    style.id = id;
+    style.textContent = `
+button.__pn_collapse_btn {
+  appearance: none;
+  border: 0;
+  background: transparent;
+  color: inherit;
+  padding: 0 8px 0 0;
+  margin: 0;
+  font: 12px ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, "Liberation Mono", "Courier New", monospace;
+  cursor: pointer;
+  vertical-align: baseline;
+  opacity: 0.8;
+}
+button.__pn_collapse_btn:hover { opacity: 1; }
+`;
+    document.documentElement.appendChild(style);
   }
 
   function uniqInDomOrder(nodes) {
@@ -560,6 +685,10 @@
     if (outlineOpen) closeOutline();
     else openOutline();
   }
+
+  ensureCollapseStyles();
+  startCollapseObserver();
+  scheduleCollapseEnhance();
 
   function absTop(el) {
     const r = el.getBoundingClientRect();
