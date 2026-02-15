@@ -138,6 +138,24 @@
     return r.top + window.scrollY;
   }
 
+  function compareDomOrder(a, b) {
+    if (a === b) return 0;
+    const pos = a.compareDocumentPosition(b);
+    if (pos & Node.DOCUMENT_POSITION_FOLLOWING) return -1;
+    if (pos & Node.DOCUMENT_POSITION_PRECEDING) return 1;
+    return 0;
+  }
+
+  function sortByVisualTop(els) {
+    els.sort((a, b) => {
+      const at = absTop(a);
+      const bt = absTop(b);
+      if (Number.isFinite(at) && Number.isFinite(bt) && at !== bt) return at - bt;
+      return compareDomOrder(a, b);
+    });
+    return els;
+  }
+
   function nearestIndexByAbsTop(els, targetTop) {
     if (!Number.isFinite(targetTop) || els.length === 0) return -1;
     let bestI = -1;
@@ -196,7 +214,7 @@
     if (now - lastNavAt < NAV_DEBOUNCE_MS) return;
     lastNavAt = now;
 
-    const els = getUserPromptElements();
+    const els = sortByVisualTop(getUserPromptElements());
     if (els.length === 0) return;
 
     // Prefer index-based navigation once a prompt has been selected; this avoids
