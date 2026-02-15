@@ -224,12 +224,12 @@
   --pn-dim: rgba(255,255,255,0.70);
   --pn-accent: #ffb020;
   --pn-border: rgba(255,255,255,0.12);
-  position: fixed;
-  top: 12px;
-  right: 12px;
-  width: min(420px, calc(100vw - 24px));
-  max-height: calc(100vh - 24px);
-  z-index: 2147483647;
+  position: sticky;
+  top: 8px;
+  margin: 8px;
+  width: auto;
+  max-height: min(60vh, 560px);
+  z-index: 9999;
   color: var(--pn-fg);
   background: var(--pn-bg);
   border: 1px solid var(--pn-border);
@@ -237,6 +237,17 @@
   box-shadow: 0 18px 60px rgba(0,0,0,0.45);
   overflow: hidden;
 }
+
+#__promptnav_outline.__pn_fixed {
+  position: fixed;
+  top: 12px;
+  right: 12px;
+  width: min(420px, calc(100vw - 24px));
+  max-height: calc(100vh - 24px);
+  z-index: 2147483647;
+  margin: 0;
+}
+
 #__promptnav_outline * { box-sizing: border-box; }
 #__promptnav_outline header {
   display: flex;
@@ -268,7 +279,7 @@
 #__promptnav_outline .body {
   padding: 10px 10px 12px;
   overflow: auto;
-  max-height: calc(100vh - 24px - 46px);
+  max-height: calc(min(60vh, 560px) - 46px);
 }
 #__promptnav_outline details {
   border: 1px solid var(--pn-border);
@@ -434,6 +445,47 @@
     }
   }
 
+  function isScrollableY(el) {
+    if (!(el instanceof Element)) return false;
+    const style = getComputedStyle(el);
+    if (style.overflowY !== 'auto' && style.overflowY !== 'scroll') return false;
+    return el.scrollHeight - el.clientHeight > 200;
+  }
+
+  function findScrollableAncestor(startEl) {
+    let el = startEl;
+    for (let i = 0; i < 25 && el; i++) {
+      if (isScrollableY(el)) return el;
+      el = el.parentElement;
+    }
+    return null;
+  }
+
+  function findTranscriptRoot() {
+    const anchors = [];
+    anchors.push(...getUserPromptElements().slice(0, 6));
+    anchors.push(...getAssistantMessageElements().slice(0, 6));
+
+    const counts = new Map();
+    for (const a of anchors) {
+      const scroller = findScrollableAncestor(a);
+      if (!scroller) continue;
+      counts.set(scroller, (counts.get(scroller) || 0) + 1);
+    }
+
+    let best = null;
+    let bestCount = 0;
+    for (const [el, c] of counts.entries()) {
+      if (c > bestCount) {
+        best = el;
+        bestCount = c;
+      }
+    }
+
+    // Fallback to main content container; if it's not scrollable, we'll use fixed.
+    return best || document.querySelector('main') || document.body;
+  }
+
   function openOutline() {
     ensureOutlineStyles();
     let panel = document.getElementById('__promptnav_outline');
@@ -477,8 +529,19 @@
       const body = document.createElement('div');
       body.className = 'body';
       panel.appendChild(body);
+    }
 
-      document.documentElement.appendChild(panel);
+    const root = findTranscriptRoot();
+    if (root && isScrollableY(root)) {
+      panel.classList.remove('__pn_fixed');
+      if (panel.parentElement !== root) {
+        root.insertBefore(panel, root.firstChild);
+      }
+    } else {
+      panel.classList.add('__pn_fixed');
+      if (panel.parentElement !== document.documentElement) {
+        document.documentElement.appendChild(panel);
+      }
     }
 
     outlineOpen = true;
@@ -497,7 +560,6 @@
     if (outlineOpen) closeOutline();
     else openOutline();
   }
-
 
   function absTop(el) {
     const r = el.getBoundingClientRect();

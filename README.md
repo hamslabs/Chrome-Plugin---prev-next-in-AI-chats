@@ -28,7 +28,7 @@ Note: if a shortcut conflicts with a browser/system shortcut, the browser may re
 ### Troubleshooting
 - If the keys feel swapped: check `brave://extensions/shortcuts` and make sure the commands are assigned to the keys you expect.
 - If nothing happens: reload the extension and refresh the chat tab.
-- For the outline panel: click the extension toolbar icon, or use the toggle shortcut.
+- For the outline panel: click the extension toolbar icon, or use the toggle shortcut. It shows up at the top of the chat transcript (falls back to a floating panel if the transcript container can't be detected).
 
 ### Uninstall
 Open `brave://extensions` (or `chrome://extensions`) and click **Remove** (or toggle it off to disable).
