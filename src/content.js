@@ -1,10 +1,57 @@
 (() => {
+  if (window.top !== window) return;
+
   const ANCHOR_Y = 96; // pixels below top; avoids fixed headers
   const HIGHLIGHT_MS = 900;
   const NAV_DEBOUNCE_MS = 450;
   let lastNavAt = 0;
   let lastSelectedEl = null;
   let lastSelectedAbsTop = null;
+
+  function showVersionBadge() {
+    const shownKey = '__promptnav_version_badge_shown';
+    if (sessionStorage.getItem(shownKey) === '1') return;
+    sessionStorage.setItem(shownKey, '1');
+
+    const manifest = chrome?.runtime?.getManifest?.();
+    const version = manifest?.version || 'unknown';
+    const id = '__promptnav_badge';
+    if (document.getElementById(id)) return;
+
+    const el = document.createElement('div');
+    el.id = id;
+    el.textContent = `Prompt Navigator v${version} loaded  (Opt+J next, Opt+K prev)`;
+    el.style.position = 'fixed';
+    el.style.top = '10px';
+    el.style.right = '10px';
+    el.style.zIndex = '2147483647';
+    el.style.pointerEvents = 'none';
+    el.style.padding = '8px 10px';
+    el.style.borderRadius = '10px';
+    el.style.border = '2px solid #ffb020';
+    el.style.background = 'rgba(10,10,10,0.92)';
+    el.style.color = '#fff';
+    el.style.font = '12px ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, \"Liberation Mono\", \"Courier New\", monospace';
+    el.style.boxShadow = '0 8px 28px rgba(0,0,0,0.35)';
+    el.style.opacity = '0';
+    el.style.transition = 'opacity 140ms ease-out';
+
+    document.documentElement.appendChild(el);
+    requestAnimationFrame(() => {
+      el.style.opacity = '1';
+    });
+
+    setTimeout(() => {
+      el.style.opacity = '0';
+      setTimeout(() => el.remove(), 220);
+    }, 2200);
+
+    // Also log to console for a second confirmation vector.
+    // eslint-disable-next-line no-console
+    console.info(`[Prompt Navigator] loaded v${version} on ${location.hostname}`);
+  }
+
+  showVersionBadge();
 
   function uniqInDomOrder(nodes) {
     const seen = new Set();
