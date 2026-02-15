@@ -106,6 +106,26 @@
     }
   }
 
+  function getCollapsibleHeadings() {
+    const headings = [];
+    for (const msg of assistantMessageRoots()) {
+      headings.push(...msg.querySelectorAll('h1[data-pn-collapsible=\"1\"],h2[data-pn-collapsible=\"1\"],h3[data-pn-collapsible=\"1\"],h4[data-pn-collapsible=\"1\"],h5[data-pn-collapsible=\"1\"],h6[data-pn-collapsible=\"1\"]'));
+    }
+    return headings.filter((h) => h instanceof HTMLElement);
+  }
+
+  function toggleCollapseAllHeadings() {
+    // Ensure toggles exist before we try to collapse/expand.
+    scheduleCollapseEnhance();
+
+    const hs = getCollapsibleHeadings();
+    if (hs.length === 0) return;
+
+    const anyExpanded = hs.some((h) => h.dataset.pnCollapsed !== '1');
+    const nextCollapsed = anyExpanded; // if anything is expanded, collapse all; else expand all
+    for (const h of hs) setHeadingCollapsed(h, nextCollapsed);
+  }
+
   function enhanceCollapsibleHeadingsInAssistantMessage(msgEl) {
     if (!(msgEl instanceof Element)) return;
     if (msgEl.querySelector('#__promptnav_outline')) return;
@@ -800,6 +820,8 @@ button.__pn_collapse_btn:hover { opacity: 1; }
     if (!msg) return;
     if (msg.type === 'PROMPT_NAVIGATE') {
       if (msg.dir === 'next' || msg.dir === 'prev') navigate(msg.dir);
+    } else if (msg.type === 'PROMPT_COLLAPSE_TOGGLE_ALL') {
+      toggleCollapseAllHeadings();
     }
   });
 

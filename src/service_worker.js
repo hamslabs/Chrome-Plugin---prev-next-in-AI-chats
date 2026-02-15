@@ -17,3 +17,8 @@ chrome.commands.onCommand.addListener((command) => {
     sendToActiveTab({ type: 'PROMPT_NAVIGATE', dir: 'prev' });
   }
 });
+
+// Toolbar button: toggle collapse/expand for all assistant sections on the page.
+chrome.action.onClicked.addListener(() => {
+  sendToActiveTab({ type: 'PROMPT_COLLAPSE_TOGGLE_ALL' });
+});
