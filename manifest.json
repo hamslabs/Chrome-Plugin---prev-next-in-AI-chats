@@ -4,6 +4,9 @@
   "version": "0.1.1",
   "description": "Jump to the next/previous user prompt in AI chat UIs.",
   "permissions": ["activeTab"],
+  "action": {
+    "default_title": "Prompt Navigator"
+  },
   "host_permissions": [
     "https://chatgpt.com/*",
     "https://chat.openai.com/*",
@@ -24,6 +27,13 @@
     }
   ],
   "commands": {
+    "toggle-outline": {
+      "suggested_key": {
+        "default": "Alt+Shift+O",
+        "mac": "Alt+Shift+O"
+      },
+      "description": "Toggle prompt outline panel"
+    },
     "next-prompt": {
       "suggested_key": {
         "default": "Alt+Shift+J",

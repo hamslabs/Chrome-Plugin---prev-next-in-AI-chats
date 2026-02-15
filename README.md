@@ -16,6 +16,7 @@ When you trigger a shortcut, the extension:
 ### Default shortcuts
 - Next prompt: macOS `Option+J` (others: `Alt+Shift+J`)
 - Previous prompt: macOS `Option+K` (others: `Alt+Shift+K`)
+- Toggle outline panel: `Alt+Shift+O` (change in `brave://extensions/shortcuts`)
 
 You can change these at `chrome://extensions/shortcuts` (or `brave://extensions/shortcuts`).
 Note: if a shortcut conflicts with a browser/system shortcut, the browser may refuse to assign it.
@@ -27,6 +28,7 @@ Note: if a shortcut conflicts with a browser/system shortcut, the browser may re
 ### Troubleshooting
 - If the keys feel swapped: check `brave://extensions/shortcuts` and make sure the commands are assigned to the keys you expect.
 - If nothing happens: reload the extension and refresh the chat tab.
+- For the outline panel: click the extension toolbar icon, or use the toggle shortcut.
 
 ### Uninstall
 Open `brave://extensions` (or `chrome://extensions`) and click **Remove** (or toggle it off to disable).

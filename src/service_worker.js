@@ -11,9 +11,15 @@ async function sendToActiveTab(msg) {
 }
 
 chrome.commands.onCommand.addListener((command) => {
-  if (command === 'next-prompt') {
+  if (command === 'toggle-outline') {
+    sendToActiveTab({ type: 'PROMPT_OUTLINE_TOGGLE' });
+  } else if (command === 'next-prompt') {
     sendToActiveTab({ type: 'PROMPT_NAVIGATE', dir: 'next' });
   } else if (command === 'prev-prompt') {
     sendToActiveTab({ type: 'PROMPT_NAVIGATE', dir: 'prev' });
   }
+});
+
+chrome.action.onClicked.addListener(() => {
+  sendToActiveTab({ type: 'PROMPT_OUTLINE_TOGGLE' });
 });
