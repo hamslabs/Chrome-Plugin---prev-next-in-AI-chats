@@ -9,8 +9,17 @@ When you trigger a shortcut, the extension:
 - Briefly highlights it so you can see what it landed on
 
 It also adds optional per-heading collapse toggles to assistant responses (click the small triangle next to headings like "My Recommendation for You Specifically").
-It can also toggle a "grouped view" mode where assistant responses are collapsed and only the currently selected prompt's response is expanded.
+It can also toggle a "grouped view" mode where assistant responses are collapsed and only the selected prompt's response is expanded.
 Tip: clicking the extension toolbar icon toggles grouped view.
+
+### Grouped view
+Grouped view is an in-place transcript mode (not a side panel):
+- Turn ON with toolbar icon click or `Option+Shift+O` (`Alt+Shift+O` non-mac).
+- Assistant responses collapse, and each user prompt gets a small `▸ / ▾` toggle button.
+- Click `▸` on a prompt to expand that prompt's response.
+- Click `▾` again to collapse it back.
+- Turn grouped view OFF to restore all responses.
+- On long conversations, a small top-right loading indicator appears while collapse/restore finishes.
 
 ### Install (developer mode)
 1. Open `chrome://extensions` (or `brave://extensions` in Brave).
@@ -32,6 +41,7 @@ Note: if a shortcut conflicts with a browser/system shortcut, the browser may re
 ### Troubleshooting
 - If the keys feel swapped: check `brave://extensions/shortcuts` and make sure the commands are assigned to the keys you expect.
 - If nothing happens: reload the extension and refresh the chat tab.
+- If grouped view toggles but buttons do not appear: reload the extension, refresh the chat tab, and ensure you're on a supported chat transcript page.
 
 ### Uninstall
 Open `brave://extensions` (or `chrome://extensions`) and click **Remove** (or toggle it off to disable).
