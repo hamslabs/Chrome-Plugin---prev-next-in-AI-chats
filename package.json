@@ -1,0 +1,30 @@
+{
+  "name": "brave-plugin-for-next-prompt",
+  "version": "1.0.0",
+  "description": "Adds keyboard shortcuts to jump to the next/previous **user prompt** in supported AI chat UIs.",
+  "main": "index.js",
+  "scripts": {
+    "test": "npm run test:e2e",
+    "test:e2e": "node e2e/run.js",
+    "test:chatgpt:login": "node e2e/chatgpt_login.js",
+    "test:chatgpt:capture": "node e2e/chatgpt_capture_state.js",
+    "test:chatgpt:real": "node e2e/chatgpt_real.js",
+    "test:chatgpt:real:cdp": "node e2e/chatgpt_real_cdp.js",
+    "test:chatgpt:check": "node e2e/chatgpt_real_cdp_check.js"
+  },
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/hamslabs/Chrome-Plugin---prev-next-in-AI-chats.git"
+  },
+  "keywords": [],
+  "author": "",
+  "license": "ISC",
+  "type": "commonjs",
+  "bugs": {
+    "url": "https://github.com/hamslabs/Chrome-Plugin---prev-next-in-AI-chats/issues"
+  },
+  "homepage": "https://github.com/hamslabs/Chrome-Plugin---prev-next-in-AI-chats#readme",
+  "devDependencies": {
+    "@playwright/test": "^1.58.2"
+  }
+}

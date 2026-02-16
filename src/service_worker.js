@@ -15,10 +15,12 @@ chrome.commands.onCommand.addListener((command) => {
     sendToActiveTab({ type: 'PROMPT_NAVIGATE', dir: 'next' });
   } else if (command === 'prev-prompt') {
     sendToActiveTab({ type: 'PROMPT_NAVIGATE', dir: 'prev' });
+  } else if (command === 'toggle-outline') {
+    sendToActiveTab({ type: 'PROMPT_GROUPED_VIEW_TOGGLE' });
   }
 });
 
-// Toolbar button: toggle collapse/expand for all assistant sections on the page.
+// Toolbar button: toggle grouped view (collapsible transcript by user prompt).
 chrome.action.onClicked.addListener(() => {
-  sendToActiveTab({ type: 'PROMPT_COLLAPSE_TOGGLE_ALL' });
+  sendToActiveTab({ type: 'PROMPT_GROUPED_VIEW_TOGGLE' });
 });

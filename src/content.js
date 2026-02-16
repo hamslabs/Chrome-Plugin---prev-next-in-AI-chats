@@ -7,25 +7,60 @@
   let lastNavAt = 0;
   let lastSelectedEl = null;
   let lastSelectedAbsTop = null;
+  function safeSessionGet(key) {
+    try {
+      return sessionStorage.getItem(key);
+    } catch {
+      return null;
+    }
+  }
+
+  function safeSessionSet(key, val) {
+    try {
+      sessionStorage.setItem(key, val);
+    } catch {
+      // ignore
+    }
+  }
+
+  function currentHost() {
+    // Test harness can force a host without requiring a real navigation.
+    if (globalThis.__promptnav_test_host) return String(globalThis.__promptnav_test_host);
+    return location.hostname;
+  }
+
+  function chromeRuntime() {
+    // Normal extension path: `chrome.runtime`.
+    // Test harness path: `globalThis.__promptnav_test_chrome_runtime`.
+    try {
+      return chrome?.runtime || globalThis.__promptnav_test_chrome_runtime || null;
+    } catch {
+      return globalThis.__promptnav_test_chrome_runtime || null;
+    }
+  }
+
+  let groupedViewEnabled = safeSessionGet('__promptnav_grouped_view') === '1';
+  let groupedActiveUserEl = null; // null means "all assistant blocks collapsed"
+  let lastGroupedBtnToggleAt = 0;
   let outlineOpen = false;
   let outlineObserver = null;
   let outlineRefreshTimer = null;
   let collapseEnhanceTimer = null;
   let collapseObserver = null;
+  let groupedObserver = null;
+  let groupedRefreshTimer = null;
+  let groupedBtnListening = false;
+  let groupedOpSeq = 0;
+  let busyDelayTimer = null;
 
-  function showVersionBadge() {
-    const shownKey = '__promptnav_version_badge_shown';
-    if (sessionStorage.getItem(shownKey) === '1') return;
-    sessionStorage.setItem(shownKey, '1');
-
-    const manifest = chrome?.runtime?.getManifest?.();
-    const version = manifest?.version || 'unknown';
-    const id = '__promptnav_badge';
-    if (document.getElementById(id)) return;
+  function showToast(text, ms = 1200) {
+    const id = '__promptnav_toast';
+    const prev = document.getElementById(id);
+    if (prev) prev.remove();
 
     const el = document.createElement('div');
     el.id = id;
-    el.textContent = `Prompt Navigator v${version} loaded  (Opt+J next, Opt+K prev)`;
+    el.textContent = String(text || '');
     el.style.position = 'fixed';
     el.style.top = '10px';
     el.style.right = '10px';
@@ -36,7 +71,7 @@
     el.style.border = '2px solid #ffb020';
     el.style.background = 'rgba(10,10,10,0.92)';
     el.style.color = '#fff';
-    el.style.font = '12px ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, \"Liberation Mono\", \"Courier New\", monospace';
+    el.style.font = '12px ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, "Liberation Mono", "Courier New", monospace';
     el.style.boxShadow = '0 8px 28px rgba(0,0,0,0.35)';
     el.style.opacity = '0';
     el.style.transition = 'opacity 140ms ease-out';
@@ -49,14 +84,83 @@
     setTimeout(() => {
       el.style.opacity = '0';
       setTimeout(() => el.remove(), 220);
-    }, 2200);
-
-    // Also log to console for a second confirmation vector.
-    // eslint-disable-next-line no-console
-    console.info(`[Prompt Navigator] loaded v${version} on ${location.hostname}`);
+    }, Math.max(250, ms));
   }
 
-  showVersionBadge();
+  function ensureBusyStyles() {
+    const id = '__promptnav_busy_style';
+    if (document.getElementById(id)) return;
+    const style = document.createElement('style');
+    style.id = id;
+    style.textContent = `
+#__promptnav_busy {
+  position: fixed;
+  top: 12px;
+  right: 12px;
+  z-index: 2147483647;
+  display: inline-flex;
+  align-items: center;
+  gap: 10px;
+  padding: 8px 11px;
+  border-radius: 999px;
+  border: 1px solid rgba(255,255,255,0.26);
+  background: rgba(10,10,10,0.88);
+  color: #fff;
+  box-shadow: 0 8px 28px rgba(0,0,0,0.35);
+  font: 12px ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, "Liberation Mono", "Courier New", monospace;
+}
+#__promptnav_busy .ball {
+  width: 14px;
+  height: 14px;
+  border-radius: 50%;
+  background: conic-gradient(#ff4d4f, #ffd666, #95de64, #40a9ff, #b37feb, #ff4d4f);
+  animation: __pn_spin 700ms linear infinite;
+}
+@keyframes __pn_spin { to { transform: rotate(360deg); } }
+`;
+    document.documentElement.appendChild(style);
+  }
+
+  function showBusy(text) {
+    ensureBusyStyles();
+    const id = '__promptnav_busy';
+    let el = document.getElementById(id);
+    if (!el) {
+      el = document.createElement('div');
+      el.id = id;
+      const ball = document.createElement('div');
+      ball.className = 'ball';
+      const label = document.createElement('div');
+      label.className = 'txt';
+      el.appendChild(ball);
+      el.appendChild(label);
+      document.documentElement.appendChild(el);
+    }
+    const txt = el.querySelector('.txt');
+    if (txt) txt.textContent = String(text || 'Working…');
+  }
+
+  function hideBusy() {
+    const el = document.getElementById('__promptnav_busy');
+    if (el) el.remove();
+  }
+
+  function waitTick(ms = 0) {
+    return new Promise((resolve) => setTimeout(resolve, ms));
+  }
+
+  async function setAssistantHiddenBatch(nodes, hidden, opSeq) {
+    const list = Array.from(nodes || []).filter((n) => n instanceof HTMLElement);
+    const CHUNK = 120;
+    for (let i = 0; i < list.length; i += CHUNK) {
+      if (opSeq !== groupedOpSeq) return false;
+      for (let j = i; j < Math.min(i + CHUNK, list.length); j++) {
+        setAssistantHiddenForGroupedView(list[j], hidden);
+      }
+      if (i + CHUNK < list.length) await waitTick(0);
+    }
+    return true;
+  }
 
   function clampText(s, maxLen) {
     const t = String(s || '').replace(/\s+/g, ' ').trim();
@@ -161,7 +265,7 @@
   }
 
   function assistantMessageRoots() {
-    const host = location.hostname;
+    const host = currentHost();
     if (host === 'chat.openai.com' || host === 'chatgpt.com') {
       return qsa('[data-message-author-role="assistant"]');
     }
@@ -232,13 +336,48 @@ button.__pn_collapse_btn:hover { opacity: 1; }
     }
   }
 
+  function chatgptTurnElements() {
+    // ChatGPT frequently changes test IDs. Prefer explicit conversation-turn IDs,
+    // but tolerate prefix/contains variants.
+    const candidates = uniqInDomOrder([
+      ...qsa('article[data-testid="conversation-turn"]'),
+      ...qsa('article[data-testid^="conversation-turn"]'),
+      ...qsa('article[data-testid*="conversation-turn"]'),
+      ...qsa('[data-testid="conversation-turn"]'),
+      ...qsa('[data-testid^="conversation-turn"]'),
+      ...qsa('[data-testid*="conversation-turn"]')
+    ]);
+    // Keep only containers that look like a single user/assistant turn.
+    return candidates.filter((el) => {
+      if (!(el instanceof Element)) return false;
+      const hasRoleNode =
+        !!el.querySelector('[data-message-author-role="assistant"]') ||
+        !!el.querySelector('[data-message-author-role="user"]');
+      // Fallback: some variants expose a role-ish marker on descendants.
+      const hasLikelyRole =
+        !!el.querySelector('[data-author="assistant"],[data-author="user"],[data-role="assistant"],[data-role="user"]');
+      return hasRoleNode || hasLikelyRole;
+    });
+  }
+
+  function chatgptRoleForTurn(turnEl) {
+    if (!(turnEl instanceof Element)) return null;
+    if (turnEl.querySelector('[data-message-author-role="assistant"]')) return 'assistant';
+    if (turnEl.querySelector('[data-message-author-role="user"]')) return 'user';
+    return null;
+  }
+
   function getUserPromptElements() {
-    const host = location.hostname;
+    const host = currentHost();
 
     // Site-specific selectors first (most stable wins).
     const siteSelectors = [];
 
     if (host === 'chat.openai.com' || host === 'chatgpt.com') {
+      const turns = chatgptTurnElements();
+      if (turns.length) {
+        return turns.filter((t) => chatgptRoleForTurn(t) === 'user');
+      }
       siteSelectors.push('[data-message-author-role="user"]');
       siteSelectors.push('article [data-message-author-role="user"]');
     }
@@ -283,6 +422,8 @@ button.__pn_collapse_btn:hover { opacity: 1; }
     // Filter out tiny or hidden nodes.
     const filtered = nodes.filter((el) => {
       if (!(el instanceof Element)) return false;
+      // If we injected grouped buttons onto this node, keep it even if layout is odd.
+      if (el instanceof HTMLElement && el.dataset.pnUserPrompt === '1') return true;
       const r = el.getBoundingClientRect();
       if (r.width < 80 || r.height < 16) return false;
       const style = getComputedStyle(el);
@@ -294,10 +435,14 @@ button.__pn_collapse_btn:hover { opacity: 1; }
   }
 
   function getAssistantMessageElements() {
-    const host = location.hostname;
+    const host = currentHost();
     const siteSelectors = [];
 
     if (host === 'chat.openai.com' || host === 'chatgpt.com') {
+      const turns = chatgptTurnElements();
+      if (turns.length) {
+        return turns.filter((t) => chatgptRoleForTurn(t) === 'assistant');
+      }
       siteSelectors.push('[data-message-author-role="assistant"]');
       siteSelectors.push('article [data-message-author-role="assistant"]');
     }
@@ -320,6 +465,9 @@ button.__pn_collapse_btn:hover { opacity: 1; }
     // Filter out tiny or hidden nodes.
     const filtered = nodes.filter((el) => {
       if (!(el instanceof Element)) return false;
+      // In grouped view we hide assistant blocks via inline display:none; keep those
+      // nodes so we can restore them on expand.
+      if (el instanceof HTMLElement && el.dataset.pnGroupedHidden === '1') return true;
       const r = el.getBoundingClientRect();
       if (r.width < 80 || r.height < 16) return false;
       const style = getComputedStyle(el);
@@ -330,31 +478,401 @@ button.__pn_collapse_btn:hover { opacity: 1; }
     return uniqInDomOrder(filtered);
   }
 
+  function isLayoutHiddenForGrouping(el) {
+    if (!(el instanceof Element)) return true;
+    if (el instanceof HTMLElement && el.dataset.pnGroupedHidden === '1') return true;
+    try {
+      const style = getComputedStyle(el);
+      if (style.display === 'none' || style.visibility === 'hidden') return true;
+    } catch {
+      // ignore
+    }
+    // display:none often yields a 0x0 rect; treat that as "hidden for layout".
+    const r = el.getBoundingClientRect();
+    return r.width === 0 && r.height === 0;
+  }
+
   function buildPromptGroups() {
-    const users = getUserPromptElements();
-    const assistants = getAssistantMessageElements();
-    const all = [];
-    for (const el of users) all.push({ el, role: 'user' });
-    for (const el of assistants) all.push({ el, role: 'assistant' });
+    // Build groups by DOM ranges:
+    // each user's group owns assistant nodes that appear after it and before
+    // the next user node. This is robust even when assistants are display:none.
+    const users = uniqInDomOrder(getUserPromptElements());
+    const assistants = uniqInDomOrder(getAssistantMessageElements());
+    if (users.length === 0) return [];
 
-    all.sort((a, b) => {
-      const at = absTop(a.el);
-      const bt = absTop(b.el);
-      if (Number.isFinite(at) && Number.isFinite(bt) && at !== bt) return at - bt;
-      return compareDomOrder(a.el, b.el);
-    });
+    const groups = users.map((u) => ({ userEl: u, assistants: [] }));
 
-    const groups = [];
-    let cur = null;
-    for (const m of all) {
-      if (m.role === 'user') {
-        cur = { userEl: m.el, assistants: [] };
-        groups.push(cur);
-      } else if (cur) {
-        cur.assistants.push(m.el);
+    function isAfter(a, b) {
+      if (!a || !b || a === b) return false;
+      return !!(a.compareDocumentPosition(b) & Node.DOCUMENT_POSITION_PRECEDING);
+    }
+
+    function isBefore(a, b) {
+      if (!a || !b || a === b) return false;
+      return !!(a.compareDocumentPosition(b) & Node.DOCUMENT_POSITION_FOLLOWING);
+    }
+
+    for (let i = 0; i < groups.length; i++) {
+      const curUser = groups[i].userEl;
+      const nextUser = i + 1 < groups.length ? groups[i + 1].userEl : null;
+      for (const a of assistants) {
+        if (!isAfter(a, curUser)) continue;
+        if (nextUser && !isBefore(a, nextUser)) continue;
+        groups[i].assistants.push(a);
       }
     }
+
     return groups;
+  }
+
+  function setAssistantHiddenForGroupedView(el, hidden) {
+    if (!(el instanceof HTMLElement)) return;
+    if (hidden) {
+      // Only mark elements we actually hide so we can safely restore on disable.
+      if (el.dataset.pnGroupedHidden !== '1') {
+        // `hidden` can be overridden by site CSS (`display: ... !important`), so
+        // force-hide via inline `display:none !important`.
+        el.dataset.pnGroupedHidden = '1';
+        el.dataset.pnGroupedPrevDisplay = el.style.display || '__empty__';
+        el.style.setProperty('display', 'none', 'important');
+      }
+      return;
+    }
+
+    // Only unhide elements we previously hid.
+    if (el.dataset.pnGroupedHidden === '1') {
+      const prev = el.dataset.pnGroupedPrevDisplay;
+      delete el.dataset.pnGroupedPrevDisplay;
+      // Don't accidentally restore to `display:none`.
+      if (prev && prev !== '__empty__' && prev !== 'none') el.style.display = prev;
+      else el.style.removeProperty('display');
+      delete el.dataset.pnGroupedHidden;
+    }
+  }
+
+  function scheduleGroupedRefresh() {
+    if (!groupedViewEnabled) return;
+    if (groupedRefreshTimer) clearTimeout(groupedRefreshTimer);
+    groupedRefreshTimer = setTimeout(() => {
+      groupedRefreshTimer = null;
+      if (!groupedViewEnabled) return;
+      // Keep any newly-added assistant blocks collapsed unless they belong to
+      // the currently selected prompt group.
+      applyGroupedViewState({ preferCurrent: true });
+    }, 300);
+  }
+
+  function startGroupedObserver() {
+    if (groupedObserver) return;
+    groupedObserver = new MutationObserver(() => scheduleGroupedRefresh());
+    groupedObserver.observe(document.body, { childList: true, subtree: true });
+  }
+
+  function stopGroupedObserver() {
+    if (!groupedObserver) return;
+    groupedObserver.disconnect();
+    groupedObserver = null;
+  }
+
+  function applyGroupedViewState({ preferCurrent }) {
+    const groups = buildPromptGroups();
+    if (groups.length === 0) return;
+
+    // Determine which prompt is "active" for expansion.
+    let activeUserEl = groupedActiveUserEl;
+    if (!activeUserEl && preferCurrent && lastSelectedEl && lastSelectedEl instanceof Element) {
+      activeUserEl = lastSelectedEl;
+    }
+    // If no active prompt, keep everything collapsed.
+
+    for (const g of groups) {
+      // Mark prompts so we can find them later for cleanup.
+      if (g.userEl && g.userEl instanceof HTMLElement) {
+        g.userEl.dataset.pnUserPrompt = '1';
+        if (g.assistants.length > 0) ensureGroupedToggleButton(g.userEl);
+        else removeGroupedToggleButton(g.userEl);
+      }
+      const isActive = activeUserEl && g.userEl === activeUserEl;
+      for (const a of g.assistants) setAssistantHiddenForGroupedView(a, !isActive);
+      if (g.userEl && g.userEl instanceof HTMLElement) updateGroupedToggleButtonState(g.userEl, !!isActive);
+    }
+  }
+
+  function clearGroupedPromptMarkers() {
+    for (const el of qsa('[data-pn-user-prompt="1"]')) {
+      if (!(el instanceof HTMLElement)) continue;
+      delete el.dataset.pnUserPrompt;
+    }
+  }
+
+  function ensureGroupedViewStyles() {
+    const id = '__promptnav_grouped_style';
+    if (document.getElementById(id)) return;
+    const style = document.createElement('style');
+    style.id = id;
+    style.textContent = `
+button.__pn_group_btn {
+  position: absolute;
+  top: 10px;
+  right: 10px;
+  z-index: 6;
+  pointer-events: auto;
+  appearance: none;
+  border: 1px solid rgba(255,255,255,0.35);
+  background: rgba(0,0,0,0.62);
+  color: rgba(255,255,255,0.98);
+  border-radius: 999px;
+  padding: 4px 10px;
+  min-width: 30px;
+  text-align: center;
+  line-height: 1;
+  font: 12px ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, "Liberation Mono", "Courier New", monospace;
+  cursor: pointer;
+  user-select: none;
+  opacity: 0.92;
+}
+button.__pn_group_btn:hover { opacity: 1; border-color: rgba(255,255,255,0.5); }
+button.__pn_group_btn.__pn_open { border-color: rgba(255,176,32,0.55); }
+button.__pn_group_btn.__pn_open:hover { border-color: rgba(255,176,32,0.9); }
+`;
+    document.documentElement.appendChild(style);
+  }
+
+  function ensureGroupedToggleButton(promptEl) {
+    if (!(promptEl instanceof HTMLElement)) return;
+    ensureGroupedViewStyles();
+
+    let btn = promptEl.querySelector(':scope > button.__pn_group_btn');
+    if (!btn) {
+      btn = document.createElement('button');
+      btn.className = '__pn_group_btn';
+      btn.type = 'button';
+      btn.dataset.pnDirectHandler = '1';
+      btn.textContent = '▸';
+      btn.setAttribute('aria-label', 'Expand/collapse this prompt response');
+      // Attach a direct handler and also keep the document-level capture handler as a
+      // fallback for UIs that intercept events. toggleGroupedPrompt() de-dupes rapid calls.
+      btn.addEventListener('click', (e) => {
+        e.preventDefault();
+        e.stopPropagation();
+        toggleGroupedPrompt(promptEl);
+      });
+
+      const pos = getComputedStyle(promptEl).position;
+      if (pos === 'static') {
+        // Give the button an anchor without perturbing elements that already opt in.
+        promptEl.dataset.pnGroupedRelPos = '1';
+        promptEl.dataset.pnGroupedOrigPos = promptEl.style.position || '__empty__';
+        promptEl.style.position = 'relative';
+      }
+
+      // Reserve space so the button doesn't overlap prompt text.
+      try {
+        const pr = Number.parseFloat(getComputedStyle(promptEl).paddingRight || '0') || 0;
+        const minPad = 56; // enough for button + breathing room
+        if (pr < minPad) {
+          promptEl.dataset.pnGroupedPadRight = '1';
+          promptEl.dataset.pnGroupedOrigPadRight = promptEl.style.paddingRight || '__empty__';
+          promptEl.style.paddingRight = `${minPad}px`;
+        }
+      } catch {
+        // ignore
+      }
+
+      promptEl.appendChild(btn);
+    }
+  }
+
+  function removeGroupedToggleButton(promptEl) {
+    if (!(promptEl instanceof HTMLElement)) return;
+    const btn = promptEl.querySelector(':scope > button.__pn_group_btn');
+    if (btn) btn.remove();
+
+    if (promptEl.dataset.pnGroupedRelPos === '1') {
+      delete promptEl.dataset.pnGroupedRelPos;
+      const origPos = promptEl.dataset.pnGroupedOrigPos;
+      delete promptEl.dataset.pnGroupedOrigPos;
+      promptEl.style.position = origPos && origPos !== '__empty__' ? origPos : '';
+    }
+
+    if (promptEl.dataset.pnGroupedPadRight === '1') {
+      delete promptEl.dataset.pnGroupedPadRight;
+      const origPad = promptEl.dataset.pnGroupedOrigPadRight;
+      delete promptEl.dataset.pnGroupedOrigPadRight;
+      promptEl.style.paddingRight = origPad && origPad !== '__empty__' ? origPad : '';
+    }
+  }
+
+  function updateGroupedToggleButtonState(promptEl, isOpen) {
+    if (!(promptEl instanceof HTMLElement)) return;
+    const btn = promptEl.querySelector(':scope > button.__pn_group_btn');
+    if (!(btn instanceof HTMLButtonElement)) return;
+    btn.textContent = isOpen ? '▾' : '▸';
+    btn.classList.toggle('__pn_open', !!isOpen);
+  }
+
+  function clearGroupedToggleButtons() {
+    for (const btn of qsa('button.__pn_group_btn')) {
+      if (!(btn instanceof HTMLButtonElement)) continue;
+      btn.remove();
+    }
+    for (const el of qsa('[data-pn-grouped-rel-pos="1"]')) {
+      if (!(el instanceof HTMLElement)) continue;
+      delete el.dataset.pnGroupedRelPos;
+      const orig = el.dataset.pnGroupedOrigPos;
+      delete el.dataset.pnGroupedOrigPos;
+      el.style.position = orig && orig !== '__empty__' ? orig : '';
+    }
+    for (const el of qsa('[data-pn-grouped-pad-right="1"]')) {
+      if (!(el instanceof HTMLElement)) continue;
+      delete el.dataset.pnGroupedPadRight;
+      const orig = el.dataset.pnGroupedOrigPadRight;
+      delete el.dataset.pnGroupedOrigPadRight;
+      el.style.paddingRight = orig && orig !== '__empty__' ? orig : '';
+    }
+  }
+
+  function toggleGroupedPrompt(promptEl) {
+    if (!groupedViewEnabled) return;
+    if (!(promptEl instanceof HTMLElement)) return;
+    const now = Date.now();
+    if (now - lastGroupedBtnToggleAt < 120) return;
+    lastGroupedBtnToggleAt = now;
+
+    const groups = buildPromptGroups();
+    const g = groups.find((x) => x.userEl === promptEl);
+    if (!g) return;
+    if (!g.assistants || g.assistants.length === 0) return;
+
+    const anyVisible = g.assistants.some((a) => a instanceof HTMLElement && a.dataset.pnGroupedHidden !== '1');
+    if (groupedActiveUserEl === promptEl && anyVisible) {
+      groupedActiveUserEl = null;
+      // Keep all groups collapsed after a manual collapse toggle; otherwise
+      // the refresh path may immediately re-open the last selected prompt.
+      lastSelectedEl = null;
+      lastSelectedAbsTop = null;
+      for (const gg of groups) for (const a of gg.assistants) setAssistantHiddenForGroupedView(a, true);
+      // Update button states for currently-known prompts.
+      for (const gg of groups) if (gg.userEl instanceof HTMLElement) updateGroupedToggleButtonState(gg.userEl, false);
+      return;
+    }
+
+    groupedActiveUserEl = promptEl;
+    lastSelectedEl = promptEl;
+    lastSelectedAbsTop = absTop(promptEl);
+    applyGroupedViewState({ preferCurrent: true });
+  }
+
+  function handleGroupedBtnEvent(e) {
+    if (!groupedViewEnabled) return;
+    if (e.type !== 'click') return;
+    const t = e.target;
+    if (!(t instanceof Element)) return;
+    const btn = t.closest('button.__pn_group_btn');
+    if (!btn) return;
+    // Prefer direct button handler when present to avoid double toggles.
+    if (btn instanceof HTMLElement && btn.dataset.pnDirectHandler === '1') return;
+
+    e.preventDefault();
+    e.stopPropagation();
+
+    const promptEl = btn.closest('[data-pn-user-prompt="1"]');
+    if (!(promptEl instanceof HTMLElement)) return;
+    toggleGroupedPrompt(promptEl);
+  }
+
+  function startGroupedBtnListener() {
+    if (groupedBtnListening) return;
+    groupedBtnListening = true;
+    document.addEventListener('click', handleGroupedBtnEvent, true);
+  }
+
+  function stopGroupedBtnListener() {
+    if (!groupedBtnListening) return;
+    groupedBtnListening = false;
+    document.removeEventListener('click', handleGroupedBtnEvent, true);
+  }
+
+  async function setGroupedViewEnabled(enabled) {
+    const opSeq = ++groupedOpSeq;
+    groupedViewEnabled = !!enabled;
+    safeSessionSet('__promptnav_grouped_view', groupedViewEnabled ? '1' : '0');
+    const busyLabel = groupedViewEnabled ? 'Collapsing responses…' : 'Restoring responses…';
+    if (busyDelayTimer) clearTimeout(busyDelayTimer);
+    busyDelayTimer = setTimeout(() => {
+      if (opSeq !== groupedOpSeq) return;
+      showBusy(busyLabel);
+    }, 120);
+
+    try {
+      if (groupedViewEnabled) {
+        startGroupedObserver();
+        startGroupedBtnListener();
+        // Collapse everything. We'll expand a group only when you select one (click the button or navigate).
+        const ok = await setAssistantHiddenBatch(getAssistantMessageElements(), true, opSeq);
+        if (!ok || opSeq !== groupedOpSeq) return;
+        groupedActiveUserEl = null;
+        applyGroupedViewState({ preferCurrent: false });
+        showToast('Grouped view: ON');
+      } else {
+        if (groupedRefreshTimer) {
+          clearTimeout(groupedRefreshTimer);
+          groupedRefreshTimer = null;
+        }
+        // Preserve scroll position around the currently expanded response (if any).
+        let anchorEl = null;
+        try {
+          if (groupedActiveUserEl && groupedActiveUserEl instanceof Element) {
+            const groups = buildPromptGroups();
+            const g = groups.find((x) => x.userEl === groupedActiveUserEl);
+            anchorEl = (g && g.assistants && g.assistants[0]) || groupedActiveUserEl;
+          } else if (lastSelectedEl && lastSelectedEl instanceof Element) {
+            anchorEl = lastSelectedEl;
+          }
+        } catch {
+          // ignore
+        }
+        const anchorTopBefore = anchorEl ? anchorEl.getBoundingClientRect().top : null;
+
+        stopGroupedObserver();
+        stopGroupedBtnListener();
+        // Only unhide what we hid, so we don't fight the page's own logic.
+        const ok = await setAssistantHiddenBatch(qsa('[data-pn-grouped-hidden="1"]'), false, opSeq);
+        if (!ok || opSeq !== groupedOpSeq) return;
+        clearGroupedToggleButtons();
+        clearGroupedPromptMarkers();
+        groupedActiveUserEl = null;
+        showToast('Grouped view: OFF');
+
+        if (anchorEl && typeof anchorTopBefore === 'number') {
+          // Let layout settle, then compensate for newly unhidden content above.
+          setTimeout(() => {
+            try {
+              if (!document.contains(anchorEl)) return;
+              const anchorTopAfter = anchorEl.getBoundingClientRect().top;
+              const delta = anchorTopAfter - anchorTopBefore;
+              if (Number.isFinite(delta) && Math.abs(delta) > 1) {
+                window.scrollBy({ top: delta, left: 0, behavior: 'auto' });
+              }
+            } catch {
+              // ignore
+            }
+          }, 0);
+        }
+      }
+    } finally {
+      if (busyDelayTimer) {
+        clearTimeout(busyDelayTimer);
+        busyDelayTimer = null;
+      }
+      if (opSeq === groupedOpSeq) hideBusy();
+    }
+  }
+
+  // Apply persisted state on load.
+  if (groupedViewEnabled) {
+    // Delay slightly so initial transcript hydration doesn't fight us.
+    setTimeout(() => setGroupedViewEnabled(true), 350);
   }
 
   function ensureOutlineStyles() {
@@ -814,16 +1332,51 @@ button.__pn_collapse_btn:hover { opacity: 1; }
     lastSelectedEl = els[idx];
     lastSelectedAbsTop = absTop(els[idx]);
     scrollToEl(els[idx]);
+
+    // In grouped view, navigation also "selects" a group and expands its assistant blocks.
+    if (groupedViewEnabled) {
+      groupedActiveUserEl = lastSelectedEl;
+      applyGroupedViewState({ preferCurrent: true });
+    }
   }
 
-  chrome.runtime.onMessage.addListener((msg) => {
+  chromeRuntime()?.onMessage?.addListener?.((msg) => {
     if (!msg) return;
     if (msg.type === 'PROMPT_NAVIGATE') {
       if (msg.dir === 'next' || msg.dir === 'prev') navigate(msg.dir);
     } else if (msg.type === 'PROMPT_COLLAPSE_TOGGLE_ALL') {
       toggleCollapseAllHeadings();
+    } else if (msg.type === 'PROMPT_OUTLINE_TOGGLE') {
+      // Back-compat: older workers used this name for "toggle outline".
+      // We now treat it as grouped view toggle.
+      setGroupedViewEnabled(!groupedViewEnabled);
+    } else if (msg.type === 'PROMPT_GROUPED_VIEW_TOGGLE') {
+      setGroupedViewEnabled(!groupedViewEnabled);
     }
   });
+
+  function isEditableEl(el) {
+    if (!(el instanceof Element)) return false;
+    if (el.isContentEditable) return true;
+    // Common chat inputs (including custom editors) often use role="textbox".
+    if (el.getAttribute('role') === 'textbox') return true;
+    const tag = (el.tagName || '').toLowerCase();
+    return tag === 'input' || tag === 'textarea' || el.getAttribute('contenteditable') === '' || el.getAttribute('contenteditable') === 'true';
+  }
+
+  function isTypingContext(e) {
+    const t = e?.target;
+    if (isEditableEl(t)) return true;
+    if (t instanceof Element) {
+      if (t.closest('input,textarea,[contenteditable=""],[contenteditable="true"],[role="textbox"]')) return true;
+    }
+    const a = document.activeElement;
+    if (isEditableEl(a)) return true;
+    if (a instanceof Element) {
+      if (a.closest('input,textarea,[contenteditable=""],[contenteditable="true"],[role="textbox"]')) return true;
+    }
+    return false;
+  }
 
   // Fallback for cases where the browser doesn't dispatch the extension command
   // (or a shortcut is unassigned). On macOS, Option+P produces "π" in inputs, so
@@ -832,9 +1385,19 @@ button.__pn_collapse_btn:hover { opacity: 1; }
     'keydown',
     (e) => {
       if (e.isComposing) return;
-      if (!e.altKey || e.ctrlKey || e.metaKey || e.shiftKey) return;
+      if (isTypingContext(e)) return;
+      if (!e.altKey || e.ctrlKey || e.metaKey) return;
 
       const k = (e.key || '').toLowerCase();
+      if (e.shiftKey && k === 'o') {
+        // Fallback for grouped view toggle (mirrors the extension command).
+        e.preventDefault();
+        e.stopPropagation();
+        setGroupedViewEnabled(!groupedViewEnabled);
+        return;
+      }
+
+      if (e.shiftKey) return;
       if (k !== 'j' && k !== 'k') return;
 
       e.preventDefault();

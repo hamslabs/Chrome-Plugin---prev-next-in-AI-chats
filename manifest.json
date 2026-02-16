@@ -1,7 +1,8 @@
 {
   "manifest_version": 3,
   "name": "Prompt Navigator",
-  "version": "0.1.3",
+  "version": "0.1.25",
+  "version_name": "0.1.25 (2026-02-16v)",
   "description": "Jump to the next/previous user prompt in AI chat UIs.",
   "permissions": ["activeTab"],
   "action": {
@@ -40,6 +41,13 @@
         "mac": "Alt+K"
       },
       "description": "Jump to previous user prompt"
+    },
+    "toggle-outline": {
+      "suggested_key": {
+        "default": "Alt+Shift+O",
+        "mac": "Alt+Shift+O"
+      },
+      "description": "Toggle grouped view"
     }
   }
 }

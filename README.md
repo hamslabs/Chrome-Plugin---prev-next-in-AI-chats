@@ -9,7 +9,8 @@ When you trigger a shortcut, the extension:
 - Briefly highlights it so you can see what it landed on
 
 It also adds optional per-heading collapse toggles to assistant responses (click the small triangle next to headings like "My Recommendation for You Specifically").
-Tip: clicking the extension toolbar icon will collapse/expand all collapsible sections in the current chat.
+It can also toggle a "grouped view" mode where assistant responses are collapsed and only the currently selected prompt's response is expanded.
+Tip: clicking the extension toolbar icon toggles grouped view.
 
 ### Install (developer mode)
 1. Open `chrome://extensions` (or `brave://extensions` in Brave).
@@ -19,6 +20,7 @@ Tip: clicking the extension toolbar icon will collapse/expand all collapsible se
 ### Default shortcuts
 - Next prompt: macOS `Option+J` (others: `Alt+Shift+J`)
 - Previous prompt: macOS `Option+K` (others: `Alt+Shift+K`)
+- Toggle grouped view: macOS `Option+Shift+O` (others: `Alt+Shift+O`)
 
 You can change these at `chrome://extensions/shortcuts` (or `brave://extensions/shortcuts`).
 Note: if a shortcut conflicts with a browser/system shortcut, the browser may refuse to assign it.

@@ -4,3 +4,9 @@
 *.key
 *.log
 tmp/
+node_modules/
+package-lock.json
+
+# Playwright / E2E local artifacts
+e2e/.pw-profile*/
+e2e/storageState*.json
